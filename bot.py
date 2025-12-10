@@ -1,77 +1,79 @@
 import os
+import asyncio
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.environ.get("BOT_TOKEN")
-HORDE_API_KEY = os.environ.get("HORDE_API_KEY")
+BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+HORDE_API_KEY = os.environ["HORDE_API_KEY"]  # Gerekiyorsa ekle
+HORDE_URL = "https://stablehorde.net/api/v2/generate/async"
 
-if not TOKEN:
-    raise Exception("BOT_TOKEN eksik!")
-if not HORDE_API_KEY:
-    raise Exception("HORDE_API_KEY eksik!")
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Merhaba! Bir görüntü üretmek için /imagine komutunu kullanın.\n\nÖrnek:\n"
-        "/imagine güneşli bir sahil, yüksek kalite"
-    )
-
-async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Lütfen bir açıklama girin. Örnek:\n/imagine mavi ejderha, detallı")
-        return
-
-    prompt = " ".join(context.args)
-    await update.message.reply_text("Görsel üretiliyor, lütfen bekleyin...")
-
-    # HORDE API
+# --------------------------
+# HORDE GÖRSEL ÜRETİMİ
+# --------------------------
+def generate_image(prompt):
+    headers = {"apikey": HORDE_API_KEY}
     payload = {
         "prompt": prompt,
-        "params": {
-            "sampler_name": "k_euler",
-            "width": 512,
-            "height": 512,
-            "steps": 25
-        },
+        "params": {"steps": 30},
         "nsfw": False
     }
 
-    headers = {
-        "apikey": HORDE_API_KEY,
-        "Client-Agent": "telegram-bot"
-    }
-
-    task = requests.post("https://stablehorde.net/api/v2/generate/async", json=payload, headers=headers).json()
+    task = requests.post(HORDE_URL, json=payload, headers=headers).json()
 
     if "id" not in task:
-        await update.message.reply_text(f"Üretim başlatılamadı:\n{task}")
-        return
+        return None
 
     task_id = task["id"]
 
-    # Sonucu takip et
+    # Task tamamlanana kadar bekle
     while True:
-        check = requests.get(f"https://stablehorde.net/api/v2/generate/status/{task_id}").json()
-        if check.get("done"):
+        status = requests.get(f"https://stablehorde.net/api/v2/generate/status/{task_id}").json()
+        if status.get("done"):
             break
+        asyncio.sleep(1)
 
-    # Gösterilen görseli al
-    if not check["generations"]:
-        await update.message.reply_text("Görsel üretimi başarısız oldu.")
+    # Görsel URL'lerini çek
+    result = requests.get(f"https://stablehorde.net/api/v2/generate/status/{task_id}").json()
+
+    images = result.get("generations", [])
+    if not images:
+        return None
+
+    return images[0]["img"]
+
+# --------------------------
+# TELEGRAM KOMUTLARI
+# --------------------------
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Hazırım efendim. Ne fotoğraf istersiniz?")
+
+async def wallpaper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Efendim, görsel hazırlanıyor...")
+
+    prompt = "4k fantasy landscape, colorful, beautiful light, ultra detailed"
+
+    img_url = generate_image(prompt)
+
+    if img_url is None:
+        await update.message.reply_text("Efendim, görsel oluşturulamadı.")
         return
 
-    image_url = check["generations"][0]["img"]
+    await update.message.reply_photo(img_url)
 
-    await update.message.reply_photo(image_url)
+# --------------------------
+# ANA ÇALIŞMA (ASYNCIO.RUN KULLANILMAYACAK!)
+# --------------------------
 
-async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("imagine", imagine))
+    app.add_handler(CommandHandler("duvar", wallpaper))
 
-    await app.run_polling()
+    print("Bot çalışıyor...")
+    app.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
