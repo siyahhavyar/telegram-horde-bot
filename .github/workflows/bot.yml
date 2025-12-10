@@ -1,20 +1,19 @@
-name: Telegram Image Bot
+name: Telegram Horde Bot
 
 on:
   workflow_dispatch:
-  push:
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install python-telegram-bot==20.7 requests
-      - name: Botu başlat
+      - run: pip install -r requirements.txt
+      - name: Botu çalıştır
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           HORDE_API_KEY: ${{ secrets.HORDE_API_KEY }}
         run: python bot.py
